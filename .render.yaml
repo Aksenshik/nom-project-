@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: nom-project
+    env: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install
+    startCommand: node server.js
+    autoDeploy: true
+    healthCheckPath: /
