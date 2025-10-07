@@ -83,7 +83,7 @@ server.registerTool("list_consumption", {
   handler: async ({ input }) => ({ events: list(input.user_id, input.from, input.to) })
 });
 
-server.tool("summarize_intake", {
+server.registerTool("summarize_intake", {
   description: "Суммирует калории за период",
   inputSchema: {
     type: "object",
