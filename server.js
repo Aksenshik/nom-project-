@@ -1,4 +1,4 @@
-import { Server } from "@modelcontextprotocol/sdk";
+import { Server } from "@modelcontextprotocol/sdk/server";
 import Ajv from "ajv";
 import { customAlphabet } from "nanoid";
 
