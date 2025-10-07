@@ -53,7 +53,7 @@ const server = new Server({
   ]
 });
 
-server.tool("log_consumption", {
+server.registerTool("log_consumption", {
   description: "Сохраняет события потребления",
   inputSchema: {
     type: "object",
@@ -73,7 +73,7 @@ server.tool("log_consumption", {
   }
 });
 
-server.tool("list_consumption", {
+server.registerTool("list_consumption", {
   description: "Показывает события за период",
   inputSchema: {
     type: "object",
