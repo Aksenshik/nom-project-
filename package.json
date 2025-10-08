@@ -3,12 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "dependencies": {
-      "@modelcontextprotocol/sdk": "^1.19.1",
-      "ajv": "^8.17.1",
-      "nanoid": "^5.0.7",
-      "mysql2": "^3.11.0"
-  },
+  "dependencies": {},
   "scripts": {
     "start": "node server.js"
   }
