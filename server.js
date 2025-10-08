@@ -1,107 +1,103 @@
-import { Server } from "@modelcontextprotocol/sdk/server";
-import Ajv from "ajv";
-import { customAlphabet } from "nanoid";
+import http from "http";
+import crypto from "crypto";
 
-const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
-const db = [];
+const db = []; // временное хранилище в памяти
 
-const schema = {
-  type: "object",
-  required: ["timestamp", "item", "amount", "unit", "source"],
-  properties: {
-    id: { type: "string" },
-    user_id: { type: "string" },
-    timestamp: { type: "string" },
-    item: { type: "string" },
-    amount: { type: "number" },
-    unit: { type: "string", enum: ["g", "ml", "piece", "serving"] },
-    source: { type: "string" }
+function sendJson(res, code, obj) {
+  const body = JSON.stringify(obj);
+  res.writeHead(code, {
+    "Content-Type": "application/json",
+    "Content-Length": Buffer.byteLength(body),
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS, GET"
+  });
+  res.end(body);
+}
+
+const tools = {
+  async log_consumption(input) {
+    const events = Array.isArray(input?.events) ? input.events : [];
+    for (const e of events) {
+      if (!e.timestamp || !e.item || typeof e.amount !== "number" || !e.unit) {
+        throw new Error("Invalid event");
+      }
+      db.push({
+        id: crypto.randomUUID(),
+        user_id: e.user_id || "u1",
+        timestamp: e.timestamp,
+        item: e.item,
+        amount: e.amount,
+        unit: e.unit,
+        source: e.source || "manual",
+        calories: e.calories ?? null
+      });
+    }
+    return { saved_count: events.length };
+  },
+
+  async list_consumption(input) {
+    const { user_id, from, to } = input || {};
+    const iso = s => (s || "").slice(0, 10);
+    const events = db.filter(e => {
+      if (user_id && e.user_id !== user_id) return false;
+      const d = iso(e.timestamp);
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+    return { events };
+  },
+
+  async summarize_intake(input) {
+    const { user_id, from, to } = input || {};
+    const { events } = await this.list_consumption({ user_id, from, to });
+    const total = events.reduce((s, e) => s + (e.calories || 0), 0);
+    return { total_calories: total, events_count: events.length };
   }
 };
 
-const ajv = new Ajv({ strict: false });
-const validate = ajv.compile(schema);
-
-const iso = s => s.slice(0, 10);
-function list(uid, from, to) {
-  return db.filter(e => {
-    if (uid && e.user_id !== uid) return false;
-    const d = iso(e.timestamp);
-    if (from && d < from) return false;
-    if (to && d > to) return false;
-    return true;
-  });
-}
-
-const server = new Server({
-  name: "NOM Nutrition MCP",
-  version: "0.1.0",
-  resources: [
-    {
-      name: "consumption-events",
-      uriTemplate: "mcp://consumption/events/{userId}/{date}",
-      handler: async ({ params }) => {
-        const { userId, date } = params;
-        const events = list(userId, date, date);
-        return {
-          ok: true,
-          mimeType: "application/json",
-          body: JSON.stringify({ user_id: userId, date, events }, null, 2)
-        };
-      }
-    }
-  ]
-});
-
-server.registerTool("log_consumption", {
-  description: "Сохраняет события потребления",
-  inputSchema: {
-    type: "object",
-    properties: { events: { type: "array", items: schema, minItems: 1 } },
-    required: ["events"]
-  },
-  outputSchema: { type: "object", properties: { saved_count: { type: "integer" } } },
-  handler: async ({ input, user }) => {
-    const uid = user?.id || "u1";
-    input.events.forEach(e => {
-      if (!validate(e)) throw new Error("Invalid event");
-      e.id = e.id || nanoid();
-      e.user_id = e.user_id || uid;
-      db.push(e);
+const server = http.createServer(async (req, res) => {
+  // Healthcheck (Render будет счастлив)
+  if (req.method === "GET" && req.url === "/") {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    return res.end("OK");
+  }
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS, GET"
     });
-    return { saved_count: input.events.length };
+    return res.end();
   }
-});
-
-server.registerTool("list_consumption", {
-  description: "Показывает события за период",
-  inputSchema: {
-    type: "object",
-    properties: { user_id: { type: "string" }, from: { type: "string" }, to: { type: "string" } }
-  },
-  outputSchema: { type: "object", properties: { events: { type: "array", items: schema } } },
-  handler: async ({ input }) => ({ events: list(input.user_id, input.from, input.to) })
-});
-
-server.registerTool("summarize_intake", {
-  description: "Суммирует калории за период",
-  inputSchema: {
-    type: "object",
-    properties: { user_id: { type: "string" }, from: { type: "string" }, to: { type: "string" } }
-  },
-  outputSchema: {
-    type: "object",
-    properties: {
-      total_calories: { type: "number" },
-      events_count: { type: "integer" }
-    }
-  },
-  handler: async ({ input }) => {
-    const ev = list(input.user_id, input.from, input.to);
-    const total = ev.reduce((sum, e) => sum + (e.calories ?? 0), 0);
-    return { total_calories: total, events_count: ev.length };
+  // API
+  if (req.method === "POST") {
+    let body = "";
+    req.on("data", chunk => (body += chunk));
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const name = payload?.tool;
+        const input = payload?.input;
+        if (!name || !(name in tools)) {
+          return sendJson(res, 400, { error: "Unknown or missing tool" });
+        }
+        const data = await tools[name](input);
+        return sendJson(res, 200, data);
+      } catch (e) {
+        return sendJson(res, 400, { error: String(e.message || e) });
+      }
+    });
+    return;
   }
+  sendJson(res, 404, { error: "Not found" });
 });
 
-const port = process.env.PORT || 34115;
-server.listen({ port }).then(() => console.log(`MCP server on ${port}`));
+const port = Number(process.env.PORT) || 34115;
+server.listen(port, "0.0.0.0", () =>
+  console.log(`HTTP server listening on http://0.0.0.0:${port}`)
+);
+
+      
