@@ -22,21 +22,46 @@ const pool = new Pool(
       }
 );
 
-// ensure table exists
-async function ensureSchema() {
+// Create ALL tables automatically (idempotent)
+async function ensureAllSchemas() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS consumption_events (
-      id        TEXT PRIMARY KEY,
-      user_id   TEXT,
-      ts        TIMESTAMPTZ NOT NULL,
-      item      TEXT NOT NULL,
-      amount    DOUBLE PRECISION NOT NULL,
-      unit      TEXT NOT NULL CHECK (unit IN ('g','ml','piece','serving')),
-      source    TEXT NOT NULL,
-      calories  DOUBLE PRECISION,
-      notes     TEXT
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      ts TIMESTAMPTZ NOT NULL,
+      item TEXT NOT NULL,
+      amount DOUBLE PRECISION NOT NULL,
+      unit TEXT NOT NULL CHECK (unit IN ('g','ml','piece','serving')),
+      source TEXT NOT NULL,
+      calories DOUBLE PRECISION,
+      notes TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_events_user_ts ON consumption_events(user_id, ts);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS purchases (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      ts TIMESTAMPTZ NOT NULL,
+      source TEXT,
+      store_name TEXT,
+      total_amount DOUBLE PRECISION,
+      currency TEXT DEFAULT 'KZT',
+      raw_text TEXT
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS purchase_items (
+      id TEXT PRIMARY KEY,
+      purchase_id TEXT REFERENCES purchases(id) ON DELETE CASCADE,
+      item_name TEXT NOT NULL,
+      quantity DOUBLE PRECISION,
+      unit TEXT,
+      price DOUBLE PRECISION,
+      currency TEXT DEFAULT 'KZT',
+      notes TEXT
+    );
   `);
 }
 
